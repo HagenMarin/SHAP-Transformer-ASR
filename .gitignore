@@ -3,3 +3,5 @@ __pycache__/
 CHiME3/
 dnn_explain_revised.pdf
 dnn_explain_short.pdf
+evaluation.log
+results/
