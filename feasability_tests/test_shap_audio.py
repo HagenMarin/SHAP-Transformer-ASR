@@ -9,7 +9,7 @@ import logging
 import sys
 import os
 import soundfile as sf
-from custom_shap_handlers import op_handler  # Import our custom handlers
+# from custom_shap_handlers import op_handler  # Import our custom handlers
 
 # Set memory management settings
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
@@ -24,6 +24,9 @@ shap_logger.setLevel(logging.DEBUG)
 handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 shap_logger.addHandler(handler)
+
+# Sound Amplification Settings
+amplification_factor = 2.0  # Factor to amplify the audio by
 
 # Check for GPU availability
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -104,9 +107,9 @@ class ModelWrapper(torch.nn.Module):
         # Get logits and return mean across vocabulary dimension
         logits = self.model(x)
         # Log the shape and statistics of logits
-        logger.info(f"Logits shape: {logits.shape}")
-        logger.info(f"Logits mean: {torch.mean(logits).item():.6f}")
-        logger.info(f"Logits std: {torch.std(logits).item():.6f}")
+        logger.debug(f"Logits shape: {logits.shape}")
+        logger.debug(f"Logits mean: {torch.mean(logits).item():.6f}")
+        logger.debug(f"Logits std: {torch.std(logits).item():.6f}")
         # Take mean across vocabulary dimension to get a 2D tensor [batch_size, sequence_length]
         return torch.mean(logits, dim=-1)
 
@@ -126,7 +129,7 @@ logger.info(f"Background std: {torch.std(background).item():.6f}")
 
 # Initialize SHAP explainer with more detailed logging
 logger.info("Initializing SHAP explainer...")
-explainer = shap.DeepExplainer(wrapped_model, background)
+explainer = shap.GradientExplainer(wrapped_model, background)
 
 # Get SHAP values with more detailed logging
 logger.info("Computing SHAP values...")
@@ -162,18 +165,18 @@ if isinstance(shap_values[0], torch.Tensor):
 mel_spec = mel_spec.cpu()
 
 # Convert to numpy and process SHAP values
-shap_values = np.array(shap_values)  # Shape: (1, sequence_length, vocab_size)
+shap_values = np.array(shap_values)  # Shape: (1, 80, 32)
 logger.info(f"After numpy conversion - SHAP values shape: {shap_values.shape}")
 logger.info(f"After numpy conversion - SHAP values sum: {np.sum(shap_values)}")
 logger.info(f"After numpy conversion - SHAP values mean: {np.mean(shap_values):.6f}")
 logger.info(f"After numpy conversion - SHAP values std: {np.std(shap_values):.6f}")
 
-# Take mean across vocabulary dimension to get importance per time step
-shap_values = np.mean(shap_values, axis=-1)  # Shape: (1, sequence_length)
-logger.info(f"After vocabulary mean - SHAP values shape: {shap_values.shape}")
-logger.info(f"After vocabulary mean - SHAP values sum: {np.sum(shap_values)}")
-logger.info(f"After vocabulary mean - SHAP values mean: {np.mean(shap_values):.6f}")
-logger.info(f"After vocabulary mean - SHAP values std: {np.std(shap_values):.6f}")
+# FIX: Average over frequency dimension (axis=1) to get importance per time step
+shap_values = np.mean(shap_values, axis=1)  # Shape: (1, 32)
+logger.info(f"After frequency mean - SHAP values shape: {shap_values.shape}")
+logger.info(f"After frequency mean - SHAP values sum: {np.sum(shap_values)}")
+logger.info(f"After frequency mean - SHAP values mean: {np.mean(shap_values):.6f}")
+logger.info(f"After frequency mean - SHAP values std: {np.std(shap_values):.6f}")
 
 # Log the difference between model output and SHAP values sum
 model_output_sum = torch.sum(model_output).item()
@@ -183,27 +186,41 @@ logger.info(f"SHAP values sum: {shap_values_sum:.6f}")
 logger.info(f"Absolute difference: {abs(model_output_sum - shap_values_sum):.6f}")
 logger.info(f"Relative difference: {abs(model_output_sum - shap_values_sum) / abs(model_output_sum):.6f}")
 
-shap_values = shap_values.squeeze()  # Remove batch dimension
-logger.info(f"After squeeze - SHAP values shape: {shap_values.shape}")
-logger.info(f"After squeeze - SHAP values sum: {np.sum(shap_values)}")
-logger.info(f"After squeeze - SHAP values mean: {np.mean(shap_values):.6f}")
-logger.info(f"After squeeze - SHAP values std: {np.std(shap_values):.6f}")
+# FIX: Average over output time dimension to get per-input-time importance
+shap_values = np.mean(shap_values, axis=2)  # Shape: (1, 32)
+shap_values = shap_values.squeeze()  # Remove singleton dimension
+logger.info(f"After output time mean - SHAP values shape: {shap_values.shape}")
+logger.info(f"After output time mean - SHAP values sum: {np.sum(shap_values)}")
 
-# Group SHAP values into windows
-window_size = 1000  # Reduced window size
-num_windows = len(shap_values) // window_size
-grouped_shap = np.array([np.mean(shap_values[i:i+window_size]) for i in range(0, len(shap_values), window_size)])
+# FIX: Interpolate SHAP values from 32 time steps to 16000 audio samples
+n_fft = 1024
+hop_length = 512
+centers = (n_fft // 2) + hop_length * np.arange(32)  # Frame centers in audio samples
+audio_shap = np.interp(
+    np.arange(16000), 
+    centers, 
+    shap_values, 
+    left=shap_values[0], 
+    right=shap_values[-1]
+)
+logger.info(f"Interpolated SHAP values shape: {audio_shap.shape}")
+logger.info(f"Interpolated SHAP values sum: {np.sum(audio_shap)}")
+
+# Group SHAP values into windows for visualization
+window_size = 1000
+num_windows = 16000 // window_size
+grouped_shap = np.array([np.mean(audio_shap[i:i+window_size]) for i in range(0, 16000, window_size)])
 logger.info(f"After grouping - SHAP values shape: {grouped_shap.shape}")
 logger.info(f"After grouping - SHAP values sum: {np.sum(grouped_shap)}")
 logger.info(f"After grouping - SHAP values mean: {np.mean(grouped_shap):.6f}")
 logger.info(f"After grouping - SHAP values std: {np.std(grouped_shap):.6f}")
 
 # Log SHAP value statistics
-logger.info(f"Original SHAP values statistics:")
-logger.info(f"  Min: {np.min(shap_values)}")
-logger.info(f"  Max: {np.max(shap_values)}")
-logger.info(f"  Mean: {np.mean(shap_values):.6f}")
-logger.info(f"  Std: {np.std(shap_values):.6f}")
+logger.info(f"Interpolated SHAP values statistics:")
+logger.info(f"  Min: {np.min(audio_shap)}")
+logger.info(f"  Max: {np.max(audio_shap)}")
+logger.info(f"  Mean: {np.mean(audio_shap):.6f}")
+logger.info(f"  Std: {np.std(audio_shap):.6f}")
 
 logger.info(f"Grouped SHAP values statistics (window size: {window_size}):")
 logger.info(f"  Min: {np.min(grouped_shap)}")
@@ -229,17 +246,14 @@ plt.title(f"Grouped SHAP Values (window size: {window_size})")
 plt.xlabel("Window")
 plt.ylabel("SHAP Value")
 
-# Plot SHAP-weighted audio
+# Plot SHAP-weighted audio using full interpolated values
 plt.subplot(3, 1, 3)
-# Normalize grouped SHAP values to be between 0 and 1
-if np.max(grouped_shap) != np.min(grouped_shap):
-    shap_normalized = (grouped_shap - grouped_shap.min()) / (grouped_shap.max() - grouped_shap.min())
+# Normalize audio_shap to [0,1] for amplification
+if np.max(audio_shap) != np.min(audio_shap):
+    shap_normalized = (audio_shap - np.min(audio_shap)) / (np.max(audio_shap) - np.min(audio_shap))
 else:
-    shap_normalized = np.ones_like(grouped_shap)  # If all values are the same, use ones
-# Repeat the normalized values to match audio length
-shap_normalized = np.repeat(shap_normalized, window_size)[:len(raw_audio)]
-# Amplify the audio based on SHAP values
-amplified_audio = raw_audio * (1 + shap_normalized)
+    shap_normalized = np.ones_like(audio_shap)
+amplified_audio = raw_audio * (1 + shap_normalized * amplification_factor)
 plt.plot(amplified_audio)
 plt.title("SHAP-Weighted Audio")
 plt.xlabel("Sample")
@@ -262,4 +276,4 @@ print(f"Original audio shape: {raw_audio.shape}")
 print(f"Grouped SHAP values shape: {grouped_shap.shape}")
 print(f"Original audio mean: {np.mean(raw_audio):.3f}")
 print(f"Grouped SHAP values mean: {np.mean(grouped_shap):.3f}")
-print(f"Amplified audio mean: {np.mean(amplified_audio):.3f}") 
+print(f"Amplified audio mean: {np.mean(amplified_audio):.3f}")

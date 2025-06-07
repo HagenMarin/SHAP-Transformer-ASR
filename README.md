@@ -150,16 +150,24 @@ Exploring SHAP for interpreting Transformer-based ASR models. Provides explainab
 - Currently using simplified handlers that delegate to SHAP's core `linear_1d` and `nonlinear_1d` functions
 - Additivity error is still above the desired tolerance (0.01)
 - Model output and SHAP values show some discrepancy in their sums
+- New evaluation framework implemented with:
+  - Controlled test set generation
+  - Quantitative metrics for SHAP effectiveness
+  - Correlation analysis with noise regions
+  - WER and confidence score integration
+  - Comprehensive visualization system
 
 ## Next Steps
-1. Enhance visualization with word-level alignment
-2. Implement basic evaluation metrics
-3. Add support for different model architectures
-4. Create comparison framework
-5. Implement SHAP integration for attention layers
-6. Develop comprehensive evaluation pipeline
-7. Integrate IBM/IRM-based evaluation
-8. Implement noise-specific analysis tools
+1. Run initial evaluation using new framework
+2. Analyze correlation metrics to understand SHAP's effectiveness
+3. Use visualizations to identify patterns in SHAP's behavior
+4. Refine metrics based on initial results
+5. Add more sophisticated noise types:
+   - Non-stationary noise (babble, music)
+   - Environmental noise (traffic, wind)
+6. Implement word-level analysis
+7. Add attention pattern analysis
+8. Develop comprehensive evaluation pipeline
 9. Fix custom handlers for PyTorch modules:
    - Improve gradient handling in custom handlers
    - Ensure proper attribute handling for x and y tensors
@@ -189,16 +197,30 @@ pip install -r requirements.txt
 
 ## Usage
 
+### Basic SHAP Analysis
 ```python
 python test_shap_audio.py
 ```
-
 This will:
 1. Load a sample audio file
 2. Process it through the ASR model
 3. Compute SHAP values
 4. Generate visualizations
 5. Save the results
+
+### Systematic Evaluation
+```python
+python test_shap_evaluation.py
+```
+This will:
+1. Create a controlled test set with clean and noisy samples
+2. Compute SHAP values for each sample
+3. Calculate correlation metrics:
+   - SHAP-Noise correlation
+   - SHAP-Confidence correlation
+   - SHAP-WER correlation
+4. Generate visualizations
+5. Save results in the `results` directory
 
 ## License
 

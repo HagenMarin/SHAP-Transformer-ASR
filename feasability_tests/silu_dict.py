@@ -1,0 +1,20 @@
+{
+    'training': False,
+	'_parameters': {},
+	'_buffers': {},
+	'_non_persistent_buffers_set': set(),
+	'_backward_pre_hooks': OrderedDict(),
+	'_backward_hooks': OrderedDict([(5, <function deeplift_grad at 0x729c09f4dda0>)]),
+	'_is_full_backward_hook': True,
+	'_forward_hooks': OrderedDict([(4, <function add_interim_values at 0x729c09f4e2a0>)]),
+	'_forward_hooks_with_kwargs': OrderedDict(),
+	'_forward_hooks_always_called': OrderedDict(),
+	'_forward_pre_hooks': OrderedDict(),
+	'_forward_pre_hooks_with_kwargs': OrderedDict(),
+	'_state_dict_hooks': OrderedDict(),
+	'_state_dict_pre_hooks': OrderedDict(),
+	'_load_state_dict_pre_hooks': OrderedDict(),
+	'_load_state_dict_post_hooks': OrderedDict(),
+	'_modules': {},
+	'inplace': False
+}
