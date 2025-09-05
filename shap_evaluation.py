@@ -59,16 +59,19 @@ class SHAPEvaluator:
                 elif len(x.shape) == 3:
                     x = x.squeeze(1)  # Remove extra dimension
                 
-                # Forward pass
-                logits = self.model(x).logits
+                # Add attention mask
+                attention_mask = torch.ones_like(x)
+                
+                # Forward pass with attention mask
+                logits = self.model(x, attention_mask=attention_mask).logits
                 
                 # Log the shape and statistics of logits
                 logger.debug(f"Logits shape: {logits.shape}")
                 logger.debug(f"Logits mean: {torch.mean(logits).item():.6f}")
                 logger.debug(f"Logits std: {torch.std(logits).item():.6f}")
                 
-                # Use max pooling instead of mean to preserve more information
-                return torch.max(logits, dim=-1)[0]
+                # For SHAP, aggregate over vocab to get a scalar per time step
+                return logits.mean(dim=-1)  # [batch, seq_len]
         
         return ModelWrapper(self.model)
     
@@ -147,29 +150,25 @@ class SHAPEvaluator:
             logger.info(f"Model output std: {torch.std(model_output).item():.6f}")
             logger.info(f"Model output sum: {torch.sum(model_output).item():.6f}")
         
-        # Get SHAP values - ensure input has shape [batch_size, sequence_length]
+        # Get SHAP values
         logger.info("Computing SHAP values with GradientExplainer")
-        shap_values = explainer.shap_values(
-            input_values.unsqueeze(0),  # Add batch dimension
-            ranked_outputs=None,
-            nsamples=20
-        )
+        shap_values = explainer.shap_values(input_values)
+        logger.info(f"Raw SHAP values type: {type(shap_values)}")
         
         # Convert to numpy and process
         if isinstance(shap_values[0], torch.Tensor):
             shap_values = [v.cpu().numpy() for v in shap_values]
         
-        # Log raw SHAP values
-        logger.info(f"Raw SHAP values shape: {np.array(shap_values).shape}")
-        logger.info(f"Raw SHAP values sum: {np.sum(shap_values)}")
-        logger.info(f"Raw SHAP values mean: {np.mean(shap_values):.6f}")
-        logger.info(f"Raw SHAP values std: {np.std(shap_values):.6f}")
+        # Convert to numpy array and handle shapes
+        shap_values = np.array(shap_values)  # Shape: (1, batch, seq_len)
+        logger.info(f"SHAP values shape after conversion: {shap_values.shape}")
         
-        # Handle the SHAP values shape properly
-        shap_values = np.array(shap_values)  # Convert to numpy array
-        if len(shap_values.shape) == 3:  # [batch, sequence, features]
-            shap_values = np.mean(shap_values, axis=2)  # Average over features
-        shap_values = shap_values.squeeze()  # Remove batch dimension
+        # Take mean over batch if needed
+        if shap_values.ndim == 3 and shap_values.shape[0] == 1:
+            shap_values = shap_values[0]  # Now (seq_len, vocab_size)
+        
+        # Average over vocabulary dimension
+        shap_values = shap_values.mean(axis=1)  # Now (seq_len,)
         
         logger.info(f"After processing - SHAP values shape: {shap_values.shape}")
         logger.info(f"After processing - SHAP values sum: {np.sum(shap_values)}")

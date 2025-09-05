@@ -49,12 +49,17 @@ class ModelWrapper(torch.nn.Module):
         (log_probs,
         encoded_len,
         greedy_predictions) = self.model.forward(processed_signal=x, processed_signal_length=torch.tensor([x.shape[2]]).to(device=device))
-        return greedy_predictions
+        transcribed_texts = self.model.wer.decoding.ctc_decoder_predictions_tensor(
+            decoder_outputs=log_probs,
+            decoder_lengths=encoded_len,
+            return_hypotheses=False,
+        )
+        return [transcribed_texts]
 
 wrapped_model = ModelWrapper(asr_model).to(device=device)
 
 example = wrapped_model.forward(processed_signal)
-print(f"Example output shape: {example.shape}")
+print(f"Example output shape: {example}")
 
 explainer = shap.GradientExplainer(model=wrapped_model, data=processed_signal)
 
