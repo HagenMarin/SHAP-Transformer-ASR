@@ -39,6 +39,7 @@ class SHAPEvaluator:
         self.processor = Wav2Vec2Processor.from_pretrained(model_name)
         self.model = Wav2Vec2ForCTC.from_pretrained(model_name)
         self.model = self.model.to(self.device)
+        self.vocab = {"<pad>": 0, "<s>": 1, "</s>": 2, "<unk>": 3, "|": 4, "E": 5, "T": 6, "A": 7, "O": 8, "N": 9, "I": 10, "H": 11, "S": 12, "R": 13, "D": 14, "L": 15, "U": 16, "M": 17, "W": 18, "C": 19, "F": 20, "G": 21, "Y": 22, "P": 23, "B": 24, "V": 25, "K": 26, "'": 27, "X": 28, "J": 29, "Q": 30, "Z": 31}
         logger.info("Model loaded successfully")
         
         # Create model wrapper for SHAP
@@ -71,7 +72,7 @@ class SHAPEvaluator:
                 logger.debug(f"Logits std: {torch.std(logits).item():.6f}")
                 
                 # For SHAP, aggregate over vocab to get a scalar per time step
-                return logits.mean(dim=-1)  # [batch, seq_len]
+                return torch.max(logits,dim=-1).values  # [batch, seq_len]
         
         return ModelWrapper(self.model)
     
@@ -82,8 +83,10 @@ class SHAPEvaluator:
         test_set = []
         
         for i in tqdm(range(min(num_samples, len(ds))), desc="Creating test samples"):
-            sample = ds[i]
+            sample = ds[i+4]
             audio = sample["audio"]["array"]
+            if len(audio) > 100000:
+                continue  # Skip too long samples
             text = sample["text"]
             
             # Create clean sample
@@ -91,18 +94,20 @@ class SHAPEvaluator:
                 "type": "clean",
                 "audio": audio,
                 "text": text,
-                "snr": float('inf')
+                "snr": float('inf'),
+                "noise": np.zeros_like(audio)
             })
             logger.info(f"Added clean sample {i+1}")
             
             # Create noisy samples with different SNRs [20, 10, 0, -5]
-            for snr in tqdm([20,0], desc=f"Adding noise to sample {i+1}", leave=False):
+            for snr in tqdm([20,10,-5], desc=f"Adding noise to sample {i+1}", leave=False):
                 noisy_audio = self._add_noise(audio, snr)
                 test_set.append({
                     "type": "noisy",
                     "audio": noisy_audio,
                     "text": text,
-                    "snr": snr
+                    "snr": snr,
+                    "noise": noisy_audio - audio
                 })
                 logger.info(f"Added noisy sample {i+1} with SNR {snr}dB")
         
@@ -150,6 +155,18 @@ class SHAPEvaluator:
             logger.info(f"Model output std: {torch.std(model_output).item():.6f}")
             logger.info(f"Model output sum: {torch.sum(model_output).item():.6f}")
         
+        # retrieve logits
+        logits = self.model(input_values).logits
+
+        # take argmax and decode
+        predicted_ids = torch.argmax(logits, dim=-1)
+        logger.info(f"Predicted IDs: {predicted_ids}")
+        transcription = self.processor.batch_decode(predicted_ids)
+        logger.info(f"Transcription: {transcription}")
+
+        output_string = ''.join([list(self.vocab.keys())[list(self.vocab.values()).index(id.item())] for id in predicted_ids[0]])
+        logger.info(f"Decoded output string: {output_string}")
+
         # Get SHAP values
         logger.info("Computing SHAP values with GradientExplainer")
         shap_values = explainer.shap_values(input_values)
@@ -163,36 +180,7 @@ class SHAPEvaluator:
         shap_values = np.array(shap_values)  # Shape: (1, batch, seq_len)
         logger.info(f"SHAP values shape after conversion: {shap_values.shape}")
         
-        # Take mean over batch if needed
-        if shap_values.ndim == 3 and shap_values.shape[0] == 1:
-            shap_values = shap_values[0]  # Now (seq_len, vocab_size)
-        
-        # Average over vocabulary dimension
-        shap_values = shap_values.mean(axis=1)  # Now (seq_len,)
-        
-        logger.info(f"After processing - SHAP values shape: {shap_values.shape}")
-        logger.info(f"After processing - SHAP values sum: {np.sum(shap_values)}")
-        logger.info(f"After processing - SHAP values mean: {np.mean(shap_values):.6f}")
-        logger.info(f"After processing - SHAP values std: {np.std(shap_values):.6f}")
-        
-        # Interpolate SHAP values to match input length
-        n_fft = 1024
-        hop_length = 512
-        centers = (n_fft // 2) + hop_length * np.arange(len(shap_values))
-        audio_shap = np.interp(
-            np.arange(len(input_values.squeeze())),
-            centers,
-            shap_values,
-            left=shap_values[0],
-            right=shap_values[-1]
-        )
-        
-        logger.info(f"Interpolated SHAP values shape: {audio_shap.shape}")
-        logger.info(f"Interpolated SHAP values sum: {np.sum(audio_shap)}")
-        logger.info(f"Interpolated SHAP values mean: {np.mean(audio_shap):.6f}")
-        logger.info(f"Interpolated SHAP values std: {np.std(audio_shap):.6f}")
-        
-        return input_values.cpu().numpy().squeeze(), audio_shap
+        return shap_values
     
     def compute_metrics(self, test_set: List[Dict]) -> Dict:
         """Compute evaluation metrics for the test set"""
@@ -222,71 +210,75 @@ class SHAPEvaluator:
             logger.info(f"Model confidence: {confidence:.4f}")
             
             # Compute SHAP values
-            _, shap_values = self.compute_shap_values(audio)
+            shap_values = self.compute_shap_values(audio)
             logger.info(f"SHAP values shape: {shap_values.shape}")
             logger.info(f"SHAP values range: [{np.min(shap_values):.4f}, {np.max(shap_values):.4f}]")
+
+            shap_values.tofile(f"data/shap_values_sample_{i+1+13}_{sample['type']}_{sample['snr']}.bin")
+            sample["audio"].tofile(f"data/audio_sample_{i+1+13}_{sample['type']}_{sample['snr']}.bin")
+            sample["noise"].tofile(f"data/noise_sample_{i+1+13}_{sample['type']}_{sample['snr']}.bin")
             
-            # Store data for visualization
-            visualization_data.append({
-                "audio": audio,
-                "shap_values": shap_values,
-                "type": sample["type"],
-                "snr": sample["snr"]
-            })
+        #     # Store data for visualization
+        #     visualization_data.append({
+        #         "audio": audio,
+        #         "shap_values": shap_values,
+        #         "type": sample["type"],
+        #         "snr": sample["snr"]
+        #     })
             
-            # Compute WER
-            predicted_ids = torch.argmax(logits, dim=-1)
-            transcription = self.processor.batch_decode(predicted_ids)[0]
-            wer = self._compute_wer(text, transcription)
-            logger.info(f"WER: {wer:.4f}")
+        #     # Compute WER
+        #     predicted_ids = torch.argmax(logits, dim=-1)
+        #     transcription = self.processor.batch_decode(predicted_ids)[0]
+        #     wer = self._compute_wer(text, transcription)
+        #     logger.info(f"WER: {wer:.4f}")
             
-            # Compute correlations
-            if sample["type"] == "noisy":
-                # For noisy samples, compute correlation with noise regions
-                noise_mask = self._estimate_noise_regions(audio)
-                logger.info(f"Noise mask shape: {noise_mask.shape}")
-                logger.info(f"Noise mask range: [{np.min(noise_mask):.4f}, {np.max(noise_mask):.4f}]")
+        #     # Compute correlations
+        #     if sample["type"] == "noisy":
+        #         # For noisy samples, compute correlation with noise regions
+        #         noise_mask = self._estimate_noise_regions(audio)
+        #         logger.info(f"Noise mask shape: {noise_mask.shape}")
+        #         logger.info(f"Noise mask range: [{np.min(noise_mask):.4f}, {np.max(noise_mask):.4f}]")
                 
-                # Ensure same length by resizing noise mask to match SHAP values
-                noise_mask = np.interp(
-                    np.linspace(0, len(noise_mask), len(shap_values)),
-                    np.arange(len(noise_mask)),
-                    noise_mask
-                )
-                logger.info(f"Resized noise mask shape: {noise_mask.shape}")
+        #         # Ensure same length by resizing noise mask to match SHAP values
+        #         noise_mask = np.interp(
+        #             np.linspace(0, len(noise_mask), len(shap_values)),
+        #             np.arange(len(noise_mask)),
+        #             noise_mask
+        #         )
+        #         logger.info(f"Resized noise mask shape: {noise_mask.shape}")
                 
-                # Check for constant values that would cause NaN correlation
-                if np.all(noise_mask == noise_mask[0]) or np.all(shap_values == shap_values[0]):
-                    logger.warning(f"Constant values detected in sample {i+1}")
-                    logger.warning(f"All noise mask values: {noise_mask[0]:.4f}")
-                    logger.warning(f"All SHAP values: {shap_values[0]:.4f}")
-                else:
-                    correlation = pearsonr(shap_values, noise_mask)[0]
-                    metrics["shap_noise_correlation"].append(correlation)
-                    logger.info(f"SHAP-noise correlation: {correlation:.4f}")
+        #         # Check for constant values that would cause NaN correlation
+        #         if np.all(noise_mask == noise_mask[0]) or np.all(shap_values == shap_values[0]):
+        #             logger.warning(f"Constant values detected in sample {i+1}")
+        #             logger.warning(f"All noise mask values: {noise_mask[0]:.4f}")
+        #             logger.warning(f"All SHAP values: {shap_values[0]:.4f}")
+        #         else:
+        #             correlation = pearsonr(shap_values, noise_mask)[0]
+        #             metrics["shap_noise_correlation"].append(correlation)
+        #             logger.info(f"SHAP-noise correlation: {correlation:.4f}")
             
-            # Compute correlation with confidence
-            if not np.all(shap_values == shap_values[0]):
-                conf_corr = pearsonr(shap_values, np.ones_like(shap_values) * confidence)[0]
-                metrics["shap_confidence_correlation"].append(conf_corr)
-                logger.info(f"SHAP-confidence correlation: {conf_corr:.4f}")
+        #     # Compute correlation with confidence
+        #     if not np.all(shap_values == shap_values[0]):
+        #         conf_corr = pearsonr(shap_values, np.ones_like(shap_values) * confidence)[0]
+        #         metrics["shap_confidence_correlation"].append(conf_corr)
+        #         logger.info(f"SHAP-confidence correlation: {conf_corr:.4f}")
             
-            # Compute correlation with WER
-            if not np.all(shap_values == shap_values[0]):
-                wer_corr = pearsonr(shap_values, np.ones_like(shap_values) * wer)[0]
-                metrics["wer_correlation"].append(wer_corr)
-                logger.info(f"SHAP-WER correlation: {wer_corr:.4f}")
+        #     # Compute correlation with WER
+        #     if not np.all(shap_values == shap_values[0]):
+        #         wer_corr = pearsonr(shap_values, np.ones_like(shap_values) * wer)[0]
+        #         metrics["wer_correlation"].append(wer_corr)
+        #         logger.info(f"SHAP-WER correlation: {wer_corr:.4f}")
         
-        # Compute average metrics
-        for key in metrics:
-            if metrics[key]:  # Only compute mean if list is not empty
-                metrics[key] = np.mean(metrics[key])
-                logger.info(f"Average {key}: {metrics[key]:.4f}")
-            else:
-                metrics[key] = float('nan')
-                logger.warning(f"No valid values for {key}, setting to NaN")
+        # # Compute average metrics
+        # for key in metrics:
+        #     if metrics[key]:  # Only compute mean if list is not empty
+        #         metrics[key] = np.mean(metrics[key])
+        #         logger.info(f"Average {key}: {metrics[key]:.4f}")
+        #     else:
+        #         metrics[key] = float('nan')
+        #         logger.warning(f"No valid values for {key}, setting to NaN")
         
-        return metrics, visualization_data
+        # return metrics, visualization_data
     
     def _estimate_noise_regions(self, audio: np.ndarray) -> np.ndarray:
         """Estimate noise regions in audio using energy and zero-crossing rate"""
@@ -411,20 +403,20 @@ def main():
     
     # Create test set
     logger.info("Creating test set...")
-    test_set = evaluator.create_test_set(num_samples=1)
+    test_set = evaluator.create_test_set(num_samples=20)
     
     # Compute metrics and get visualization data
     logger.info("Computing metrics...")
-    metrics, visualization_data = evaluator.compute_metrics(test_set)
+    evaluator.compute_metrics(test_set)
     
-    # Visualize results
-    logger.info("Visualizing results...")
-    evaluator.visualize_results(visualization_data, metrics)
+    # # Visualize results
+    # logger.info("Visualizing results...")
+    # evaluator.visualize_results(visualization_data, metrics)
     
-    # Print metrics
-    logger.info("\nEvaluation Metrics:")
-    for key, value in metrics.items():
-        logger.info(f"{key}: {value:.4f}")
+    # # Print metrics
+    # logger.info("\nEvaluation Metrics:")
+    # for key, value in metrics.items():
+    #     logger.info(f"{key}: {value:.4f}")
 
 if __name__ == "__main__":
     main() 
