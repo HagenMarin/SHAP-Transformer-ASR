@@ -205,13 +205,41 @@ class InteractiveShapVisualizer:
         self.fig.canvas.draw_idle()
 
 # --- Data Loading and Processing ---
-def _normalize_and_scale_shap(shap_vals, min_val=0.80, default=0.0):
-    """Normalize and scale SHAP values based on the logic from the original script."""
+def _normalize_and_scale_shap(shap_vals, percentile=98.0, default=0.0):
+    """
+    Normalizes SHAP values and scales them so that only values above a
+    certain percentile are retained.
+
+    Args:
+        shap_vals (np.ndarray): The array of SHAP values.
+        percentile (float): The percentile (0-100) to use as a clipping threshold.
+                            Only normalized values above this percentile's value will be kept.
+        default (float): The default value for flat arrays.
+
+    Returns:
+        np.ndarray: The scaled SHAP values array.
+    """
     shap_min, shap_max = np.min(shap_vals), np.max(shap_vals)
+
+    # If the SHAP values are all the same, return a flat array of the default value
     if shap_max - shap_min < 1e-8:
         return np.full_like(shap_vals, default)
+        
+    # Normalize the values to the range [0, 1]
     normalized = (shap_vals - shap_min) / (shap_max - shap_min)
-    scaled = ((normalized - min_val).clip(0, 1) / (1 - min_val)).clip(default, 1)
+    
+    # Calculate the threshold value based on the specified percentile of the normalized data
+    clip_threshold = np.percentile(normalized, percentile)
+
+    # Handle the edge case where the threshold is at or very close to the maximum
+    # to avoid division by zero. In this case, just return a binary mask.
+    if (1.0 - clip_threshold) < 1e-8:
+        return (normalized >= clip_threshold).astype(float)
+
+    # 1. Subtract the threshold and clip negative values to 0.
+    # 2. Rescale the remaining values (from the threshold up to 1) to the [0, 1] range.
+    scaled = ((normalized - clip_threshold).clip(0) / (1.0 - clip_threshold)).clip(default, 1)
+    
     return scaled
 
 def load_and_process_data(audio_path, shap_path):
