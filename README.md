@@ -1,227 +1,82 @@
 # SHAP-Transformer-ASR
-Exploring SHAP for interpreting Transformer-based ASR models. Provides explainability via Shapley values to improve transparency in speech recognition. Includes code, benchmarks, and analysis for debugging &amp; trust in high-stakes applications.
 
-## Project Plan
+Exploring SHAP for interpreting Transformer-based ASR models. This project provides explainability via Shapley values to improve transparency in speech recognition. It includes code, benchmarks, and analysis for debugging and building trust in high-stakes applications.
 
-### 1. Data Collection and Preparation
-- Utilize LibriSpeech dataset
-- Create diverse test set including:
-  - Clean speech samples
-  - Noisy speech samples with specific categories:
-    - Stationary noise (white noise, pink noise)
-    - Non-stationary noise (babble, music)
-    - Environmental noise (traffic, wind)
-  - Different accents and speakers
-  - Various speech lengths
-- Add metadata for each sample (speaker ID, accent, noise level, etc.)
-- Generate reference masks:
-  - Ideal Binary Mask (IBM) for each sample
-  - Ideal Ratio Mask (IRM) for each sample
+## Overview
 
-### 2. Model Analysis Framework
-- Systematic evaluation pipeline
-- Key components:
-  - Temporal importance analysis
-  - Frequency importance analysis
-  - Word-level importance mapping
-  - Confidence score integration
-  - Statistical analysis tools
-  - Human annotation comparison
-- SHAP Implementation Strategy:
-  - Input features (mel spectrograms/MFCCs)
-  - Attention weights in Transformer layers
-  - Output probabilities for each token
-  - KernelSHAP for feature-level explanations
-  - Attention visualization tools
+SHAP-Transformer-ASR integrates SHAP (SHapley Additive exPlanations) with Transformer-based Automatic Speech Recognition (ASR) models, such as Wav2Vec2. The project focuses on providing insights into model behavior by analyzing feature importance, visualizing SHAP values, and evaluating their correlation with model performance metrics like Word Error Rate (WER).
 
-### 3. Visualization and Analysis Components
-- Enhanced visualizations:
-  - Word-level alignment
-  - Confidence scores
-  - Reference text integration
-  - Interactive elements
-- Comparative visualizations:
-  - SHAP vs. attention weights
-  - SHAP vs. model confidence
-  - SHAP vs. human annotations
-- SHAP-specific visualizations:
-  - Heatmaps of SHAP values over spectrograms
-  - Attention patterns with SHAP overlays
-  - Comparative visualizations between model layers
-  - Interactive analysis tools
-
-### 4. Evaluation Metrics
-- Quantitative metrics:
-  - Temporal consistency
-  - Frequency band importance
-  - Word-level attribution accuracy
-  - Correlation with model confidence
-  - Word Error Rate (WER) correlation with SHAP values
-  - Feature importance ranking
-  - Attention pattern analysis
-  - Computational efficiency metrics
-  - Mask-based evaluation:
-    - Correlation between SHAP values and IBM/IRM masks
-    - Accuracy of speech/noise region identification
-    - Consistency across different noise types
-    - Impact on ASR performance
-- Qualitative evaluation:
-  - Human annotation guidelines
-  - Explanation quality assessment
-  - Use case specific metrics
-
-### 5. Key Analysis Areas
-- SHAP value correlation analysis:
-  - Phoneme boundaries
-  - Word boundaries
-  - Speaker characteristics
-  - Background noise
-  - Mask-based analysis:
-    - Comparison with IBM/IRM reference masks
-    - Noise type-specific patterns
-    - Speech enhancement effectiveness
-- Comparative analysis across:
-  - Different speaker accents
-  - Various speaking rates
-  - Different noise conditions
-  - Multiple model architectures
-  - Different mask types (IBM vs IRM)
-
-### 6. Implementation Phases
-1. Basic Framework
-   - Enhanced SHAP visualization
-   - Basic evaluation metrics
-   - Core analysis tools
-   - SHAP integration with ASR pipeline
-
-2. Advanced Analysis
-   - Word-level analysis
-   - Comparative methods
-   - Evaluation pipeline
-   - Attention pattern analysis
-
-3. Comprehensive Evaluation
-   - Human evaluation integration
-   - Statistical analysis
-   - Documentation and examples
-   - Cross-validation across datasets
-
-### 7. Validation Framework
-- Ablation studies
-- Baseline method comparisons:
-  - LIME
-  - Integrated Gradients
-  - IBM/IRM-based evaluation
-- Human evaluation of explanations
-- Cross-validation across datasets
-- Mask-based validation:
-  - Comparison with ideal masks
-  - Noise type-specific validation
-  - Speech enhancement metrics
-
-### 8. Expected Challenges and Solutions
-- Computational complexity of SHAP
-  - Solution: Use approximation methods and GPU acceleration
-- Interpreting attention patterns
-  - Solution: Develop layer-specific visualization tools
-- Scalability to long audio sequences
-  - Solution: Implement efficient sampling strategies
-
-### 9. Documentation and Reporting
-- Detailed documentation:
-  - Methodology
-  - Evaluation metrics
-  - Visualization guidelines
-- Example reports:
-  - Sample analysis
-  - Comparative results
-  - Best practices
-- Technical documentation
-- Visualization examples
-- Comparative analysis
+Key features include:
+- SHAP value computation for ASR models.
+- Visualization tools for SHAP values over spectrograms and waveforms.
+- Metrics to evaluate SHAP's effectiveness in identifying speech-relevant regions.
+- Correlation analysis between SHAP values, noise, and WER.
 
 ## Current Status
-- Basic SHAP visualization implemented
-- Mel spectrogram with SHAP value overlay
-- Initial model integration with Wav2Vec2
-- IBM/IRM mask generation pipeline
-- Basic implementation of SHAP for ASR model is working
-- Custom handlers for LayerNorm, SiLU, GroupNorm, and GLU modules are implemented
-- Currently using simplified handlers that delegate to SHAP's core `linear_1d` and `nonlinear_1d` functions
-- Additivity error is still above the desired tolerance (0.01)
-- Model output and SHAP values show some discrepancy in their sums
-- New evaluation framework implemented with:
-  - Controlled test set generation
-  - Quantitative metrics for SHAP effectiveness
-  - Correlation analysis with noise regions
-  - WER and confidence score integration
-  - Comprehensive visualization system
 
-## Next Steps
-1. Run initial evaluation using new framework
-2. Analyze correlation metrics to understand SHAP's effectiveness
-3. Use visualizations to identify patterns in SHAP's behavior
-4. Refine metrics based on initial results
-5. Add more sophisticated noise types:
-   - Non-stationary noise (babble, music)
-   - Environmental noise (traffic, wind)
-6. Implement word-level analysis
-7. Add attention pattern analysis
-8. Develop comprehensive evaluation pipeline
-9. Fix custom handlers for PyTorch modules:
-   - Improve gradient handling in custom handlers
-   - Ensure proper attribute handling for x and y tensors
-   - Reduce additivity error to below 0.01
-   - Consider implementing more sophisticated gradient computation methods
-10. Improve visualization:
-    - Add more detailed plots showing SHAP values over time
-    - Include confidence intervals for SHAP values
-    - Add interactive visualization options
-11. Performance optimization:
-    - Reduce memory usage during SHAP computation
-    - Optimize background dataset creation
-    - Consider implementing batched processing
-12. Documentation:
-    - Add detailed API documentation
-    - Include examples for different use cases
-    - Document the model architecture and SHAP implementation details
+- SHAP value computation integrated with Wav2Vec2 ASR models.
+- Interactive visualization tools for SHAP values and spectrograms.
+- Evaluation framework for SHAP effectiveness using metrics η_raw and WER as described in the paper.
+- Controlled test set generation with clean and noisy audio samples.
+- Initial results show promising correlations between SHAP values and speech-relevant regions.
 
 ## Requirements
-See `requirements.txt` for detailed dependencies.
 
-## Installation
+To run this project, install the required dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
 ## Usage
+### SHAP Value Computation  
+To compute SHAP values for a test set:
 
-### Basic SHAP Analysis
-```python
-python test_shap_audio.py
+```bash
+python shap_calculation.py
 ```
-This will:
-1. Load a sample audio file
-2. Process it through the ASR model
-3. Compute SHAP values
-4. Generate visualizations
-5. Save the results
 
-### Systematic Evaluation
-```python
-python test_shap_evaluation.py
+This script:
+
+1. Loads a pre-trained Wav2Vec2 model.
+2. Creates a controlled test set with clean and noisy audio samples.
+3. Computes SHAP values for each sample.
+4. Saves the results in the data/ directory.
+
+### Visualization  
+To visualize SHAP values interactively:
+```bash
+python visualization.py
 ```
-This will:
-1. Create a controlled test set with clean and noisy samples
-2. Compute SHAP values for each sample
-3. Calculate correlation metrics:
-   - SHAP-Noise correlation
-   - SHAP-Confidence correlation
-   - SHAP-WER correlation
-4. Generate visualizations
-5. Save results in the `results` directory
+This script:
+
+1. Loads audio and SHAP values from the data/ directory.
+2. Displays an interactive spectrogram with SHAP overlays.
+3. Allows users to explore SHAP-weighted spectrograms for individual characters.
+
+### Evaluation  
+To evaluate SHAP effectiveness using η_raw and WER:
+```bash
+python nraw_vs_wer.py
+```
+This script:
+
+1. Calculates the η_raw score for each audio sample.
+2. Computes the WER for the model's transcription.
+3. Generates a scatter plot showing the correlation between η_raw and WER.
+
+### Systematic Evaluation  
+To only compute η_raw score for a selected audio run:
+```bash
+python calculate_metric.py
+```
+This script:
+
+1. Lets you choose a previously computed set of audio file+shap values
+1. Calculates η_raw for selected audio sample.
+
+## Results
+The project demonstrates that SHAP values can effectively highlight speech-relevant regions in audio, even under noisy conditions. The correlation between SHAP values and WER provides insights into model behavior and areas for improvement.
 
 ## License
-
-MIT
+This project is licensed under the MIT License. See the LICENSE file for details. 
